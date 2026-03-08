@@ -135,6 +135,45 @@ describe('POST /api/urls', () => {
     expect(res.body.error).toBe('Slug may only contain letters, numbers, and hyphens');
   });
 
+  it('should return 400 for URL exceeding max length', async () => {
+    const app = createApp();
+    const longUrl = 'https://example.com/' + 'a'.repeat(2048);
+    const res = await request(app)
+      .post('/api/urls')
+      .send({ url: longUrl });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('must not exceed');
+  });
+
+  it('should return 400 for URL with credentials', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/urls')
+      .send({ url: 'https://admin:password@example.com' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('URL must not contain credentials');
+  });
+
+  it('should return 400 for javascript: protocol URL', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/urls')
+      .send({ url: 'javascript:alert(1)' });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('should return 400 for data: protocol URL', async () => {
+    const app = createApp();
+    const res = await request(app)
+      .post('/api/urls')
+      .send({ url: 'data:text/html,<script>alert(1)</script>' });
+
+    expect(res.status).toBe(400);
+  });
+
   it('should return 409 for duplicate slug', async () => {
     const err = new Error('duplicate key');
     err.code = '23505';
@@ -257,6 +296,64 @@ describe('GET /api/urls/:slug', () => {
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('URL not found');
   });
+
+  it('should return 400 for slug with special characters', async () => {
+    const app = createApp();
+    const res = await request(app).get('/api/urls/slug<script>');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid slug parameter');
+  });
+
+  it('should return 400 for slug that is too long', async () => {
+    const app = createApp();
+    const res = await request(app).get('/api/urls/' + 'a'.repeat(33));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Slug parameter is too long');
+  });
+
+  it('should return 502 if stored URL has invalid scheme', async () => {
+    const badRecord = { id: 1, slug: 'bad-url', original_url: 'ftp://evil.com/file', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(badRecord);
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
+
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/urls/bad-url')
+      .redirects(0);
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain('Stored URL is invalid');
+
+    console.error.mockRestore();
+  });
+
+  it('should truncate long user-agent before recording', async () => {
+    const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(null);
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
+
+    const app = createApp();
+    const longUA = 'Mozilla/' + 'x'.repeat(1000);
+    await request(app)
+      .get('/api/urls/abc123')
+      .set('User-Agent', longUA)
+      .redirects(0);
+
+    // Wait for non-blocking click recording
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const clickInsertCall = mockQuery.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO clicks')
+    );
+    expect(clickInsertCall).toBeTruthy();
+    // user_agent is param index 2 (0-indexed)
+    expect(clickInsertCall[1][2].length).toBeLessThanOrEqual(512);
+  });
 });
 
 describe('GET /api/urls/:slug/info', () => {
@@ -280,6 +377,14 @@ describe('GET /api/urls/:slug/info', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('URL not found');
+  });
+
+  it('should return 400 for slug with special characters in info', async () => {
+    const app = createApp();
+    const res = await request(app).get('/api/urls/slug<script>/info');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid slug parameter');
   });
 });
 
@@ -337,5 +442,13 @@ describe('DELETE /api/urls/:slug', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(urlCache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 for slug with special characters on delete', async () => {
+    const app = createApp();
+    const res = await request(app).delete('/api/urls/slug<script>');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid slug parameter');
   });
 });
