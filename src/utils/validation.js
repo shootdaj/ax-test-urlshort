@@ -3,6 +3,8 @@
  * @param {string} url
  * @returns {{ valid: boolean, error?: string }}
  */
+const MAX_URL_LENGTH = 2048;
+
 function validateUrl(url) {
   if (!url) {
     return { valid: false, error: 'URL is required' };
@@ -10,10 +12,17 @@ function validateUrl(url) {
   if (typeof url !== 'string') {
     return { valid: false, error: 'URL must be a string' };
   }
+  if (url.length > MAX_URL_LENGTH) {
+    return { valid: false, error: `URL must not exceed ${MAX_URL_LENGTH} characters` };
+  }
   try {
     const parsed = new URL(url);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return { valid: false, error: 'URL must use http or https protocol' };
+    }
+    // Reject URLs with credentials (user:pass@host) to prevent phishing
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: 'URL must not contain credentials' };
     }
     return { valid: true };
   } catch {
@@ -65,4 +74,24 @@ function validateDateParam(dateStr) {
   return { valid: true, date };
 }
 
-module.exports = { validateUrl, validateSlug, validateDateParam };
+/**
+ * Validate a slug parameter from URL path (for read/delete routes).
+ * Less strict than validateSlug — allows any alphanumeric/hyphen string 1-32 chars.
+ * Rejects dangerous characters that could cause issues.
+ * @param {string} slug
+ * @returns {{ valid: boolean, error?: string }}
+ */
+function validateSlugParam(slug) {
+  if (!slug || typeof slug !== 'string') {
+    return { valid: false, error: 'Slug parameter is required' };
+  }
+  if (slug.length > 32) {
+    return { valid: false, error: 'Slug parameter is too long' };
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(slug)) {
+    return { valid: false, error: 'Invalid slug parameter' };
+  }
+  return { valid: true };
+}
+
+module.exports = { validateUrl, validateSlug, validateDateParam, validateSlugParam, MAX_URL_LENGTH };

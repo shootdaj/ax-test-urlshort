@@ -1,7 +1,7 @@
 const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/pool');
-const { validateUrl, validateSlug } = require('../utils/validation');
+const { validateUrl, validateSlug, validateSlugParam } = require('../utils/validation');
 const { parseUserAgent } = require('../utils/useragent');
 const urlCache = require('../cache/urlCache');
 
@@ -43,6 +43,10 @@ router.post('/', async (req, res, next) => {
 router.get('/:slug/info', async (req, res, next) => {
   try {
     const { slug } = req.params;
+    const slugCheck = validateSlugParam(slug);
+    if (!slugCheck.valid) {
+      return res.status(400).json({ error: slugCheck.error });
+    }
     const result = await db.query('SELECT * FROM urls WHERE slug = $1', [slug]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'URL not found' });
@@ -57,6 +61,10 @@ router.get('/:slug/info', async (req, res, next) => {
 router.get('/:slug', async (req, res, next) => {
   try {
     const { slug } = req.params;
+    const slugCheck = validateSlugParam(slug);
+    if (!slugCheck.valid) {
+      return res.status(400).json({ error: slugCheck.error });
+    }
 
     // 1. Try cache first
     let urlRecord = await urlCache.getUrl(slug);
@@ -76,14 +84,24 @@ router.get('/:slug', async (req, res, next) => {
     }
 
     // Record click (non-blocking — don't delay the redirect)
-    const userAgent = req.get('user-agent') || '';
+    // Sanitize metadata: truncate to prevent oversized storage
+    const rawUserAgent = req.get('user-agent') || '';
+    const userAgent = rawUserAgent.slice(0, 512);
     const { browser, os } = parseUserAgent(userAgent);
+    const referrer = (req.get('referer') || '').slice(0, 2048) || null;
+    const ipAddress = (req.ip || '').slice(0, 45);
     db.query(
       'INSERT INTO clicks (url_id, referrer, user_agent, ip_address, browser, os) VALUES ($1, $2, $3, $4, $5, $6)',
-      [urlRecord.id, req.get('referer'), userAgent, req.ip, browser, os]
+      [urlRecord.id, referrer, userAgent, ipAddress, browser, os]
     ).catch((err) => {
       console.error('Failed to record click:', err.message);
     });
+
+    // Open redirect protection: re-validate URL scheme before redirecting
+    const redirectCheck = validateUrl(urlRecord.original_url);
+    if (!redirectCheck.valid) {
+      return res.status(502).json({ error: 'Stored URL is invalid or uses a disallowed scheme' });
+    }
 
     res.redirect(301, urlRecord.original_url);
   } catch (err) {
@@ -107,6 +125,10 @@ router.get('/', async (req, res, next) => {
 router.delete('/:slug', async (req, res, next) => {
   try {
     const { slug } = req.params;
+    const slugCheck = validateSlugParam(slug);
+    if (!slugCheck.valid) {
+      return res.status(400).json({ error: slugCheck.error });
+    }
     const result = await db.query('DELETE FROM urls WHERE slug = $1 RETURNING *', [slug]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'URL not found' });

@@ -109,6 +109,22 @@ describe('GET /api/analytics/:slug', () => {
     expect(res.body.error).toBe('URL not found');
   });
 
+  it('should return 400 for slug with special characters', async () => {
+    const app = createApp();
+    const res = await request(app).get('/api/analytics/slug<script>');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid slug parameter');
+  });
+
+  it('should return 400 for slug that is too long', async () => {
+    const app = createApp();
+    const res = await request(app).get('/api/analytics/' + 'a'.repeat(33));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Slug parameter is too long');
+  });
+
   it('should accept valid date range parameters', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [mockUrl] })

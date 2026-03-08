@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db/pool');
-const { validateDateParam } = require('../utils/validation');
+const { validateDateParam, validateSlugParam } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -62,6 +62,13 @@ router.get('/', async (req, res, next) => {
 router.get('/:slug', async (req, res, next) => {
   try {
     const { slug } = req.params;
+
+    // Validate slug param
+    const slugCheck = validateSlugParam(slug);
+    if (!slugCheck.valid) {
+      return res.status(400).json({ error: slugCheck.error });
+    }
+
     const { start, end } = req.query;
 
     // Validate date params
