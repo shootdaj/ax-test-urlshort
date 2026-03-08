@@ -2,18 +2,32 @@ const express = require('express');
 const request = require('supertest');
 const { errorHandler } = require('../middleware/errors');
 const db = require('../db/pool');
+const urlCache = require('../cache/urlCache');
 
 // Replace db.query with a mock function
 const originalQuery = db.query;
 const mockQuery = vi.fn();
 
+// Replace urlCache methods with mocks
+const originalGetUrl = urlCache.getUrl;
+const originalSetUrl = urlCache.setUrl;
+const originalInvalidate = urlCache.invalidate;
+
 beforeEach(() => {
   db.query = mockQuery;
   mockQuery.mockReset();
+
+  // Default cache behavior: miss on get, resolve on set/invalidate
+  urlCache.getUrl = vi.fn().mockResolvedValue(null);
+  urlCache.setUrl = vi.fn().mockResolvedValue(undefined);
+  urlCache.invalidate = vi.fn().mockResolvedValue(undefined);
 });
 
 afterAll(() => {
   db.query = originalQuery;
+  urlCache.getUrl = originalGetUrl;
+  urlCache.setUrl = originalSetUrl;
+  urlCache.invalidate = originalInvalidate;
 });
 
 // Prevent actual pg pool from connecting
@@ -44,6 +58,18 @@ describe('POST /api/urls', () => {
     expect(res.status).toBe(201);
     expect(res.body.slug).toBeTruthy();
     expect(res.body.original_url).toBe('https://example.com');
+  });
+
+  it('should cache the newly created URL', async () => {
+    const mockRow = { id: 1, slug: 'cached-slug', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] });
+
+    const app = createApp();
+    await request(app)
+      .post('/api/urls')
+      .send({ url: 'https://example.com', customSlug: 'cached-slug' });
+
+    expect(urlCache.setUrl).toHaveBeenCalledWith('cached-slug', mockRow);
   });
 
   it('should create a URL with custom slug', async () => {
@@ -125,9 +151,10 @@ describe('POST /api/urls', () => {
 });
 
 describe('GET /api/urls/:slug', () => {
-  it('should redirect to original URL', async () => {
+  it('should redirect to original URL (cache miss, DB hit)', async () => {
     const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
-    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
+    urlCache.getUrl = vi.fn().mockResolvedValue(null); // cache miss
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // DB hit
     mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click (non-blocking)
 
     const app = createApp();
@@ -139,8 +166,45 @@ describe('GET /api/urls/:slug', () => {
     expect(res.headers.location).toBe('https://example.com');
   });
 
+  it('should redirect using cached URL (cache hit, no DB query)', async () => {
+    const cachedRecord = { id: 1, slug: 'cached', original_url: 'https://cached.com', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(cachedRecord); // cache hit
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click (non-blocking)
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/urls/cached')
+      .redirects(0);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('https://cached.com');
+    // DB query for SELECT should NOT have been called (only click INSERT)
+    const selectCalls = mockQuery.mock.calls.filter(
+      (call) => typeof call[0] === 'string' && call[0].includes('SELECT') && call[0].includes('urls')
+    );
+    expect(selectCalls).toHaveLength(0);
+  });
+
+  it('should populate cache after DB hit', async () => {
+    const mockRow = { id: 1, slug: 'populate', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(null); // cache miss
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // DB hit
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
+
+    const app = createApp();
+    await request(app)
+      .get('/api/urls/populate')
+      .redirects(0);
+
+    // Wait for non-blocking cache set
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(urlCache.setUrl).toHaveBeenCalledWith('populate', mockRow);
+  });
+
   it('should record click with parsed user-agent metadata', async () => {
     const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(null);
     mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
     mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
 
@@ -165,6 +229,7 @@ describe('GET /api/urls/:slug', () => {
 
   it('should still redirect even if click recording fails', async () => {
     const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    urlCache.getUrl = vi.fn().mockResolvedValue(null);
     mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
     mockQuery.mockRejectedValueOnce(new Error('DB write failed')); // INSERT click fails
 
@@ -183,6 +248,7 @@ describe('GET /api/urls/:slug', () => {
   });
 
   it('should return 404 for unknown slug', async () => {
+    urlCache.getUrl = vi.fn().mockResolvedValue(null);
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const app = createApp();
@@ -235,7 +301,7 @@ describe('GET /api/urls', () => {
 });
 
 describe('DELETE /api/urls/:slug', () => {
-  it('should delete a URL', async () => {
+  it('should delete a URL and invalidate cache', async () => {
     const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com' };
     mockQuery.mockResolvedValueOnce({ rows: [mockRow] });
 
@@ -244,6 +310,11 @@ describe('DELETE /api/urls/:slug', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.deleted).toBe(true);
+
+    // Wait for non-blocking cache invalidation
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(urlCache.invalidate).toHaveBeenCalledWith('abc123');
   });
 
   it('should return 404 when deleting unknown slug', async () => {
@@ -254,5 +325,17 @@ describe('DELETE /api/urls/:slug', () => {
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('URL not found');
+  });
+
+  it('should not invalidate cache when URL not found', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const app = createApp();
+    await request(app).delete('/api/urls/nonexistent');
+
+    // Wait a bit to ensure invalidate wasn't called
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(urlCache.invalidate).not.toHaveBeenCalled();
   });
 });

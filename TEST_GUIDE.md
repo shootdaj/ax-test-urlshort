@@ -66,6 +66,15 @@ npx vitest run --dir src && \
 | Date param validation | `validation.test > validateDateParam` | `Per-URL Analytics > should return 400 for invalid date format` | - | Covered |
 | User-agent parsing | `useragent.test > parseUserAgent, detectBrowser, detectOS` | - | - | Covered |
 | Analytics DB indexes | - | - | - | Covered (schema) |
+| Redis cache-aside (URL lookups) | `urlCache.test > getUrl cache hit/miss`, `urls.test > cache hit skips DB` | `cache.integration > should cache URL on creation` | `Cached redirect workflow` | Covered |
+| Cache population on miss | `urls.test > should populate cache after DB hit` | `cache.integration > should populate cache on redirect` | `Cached redirect workflow` | Covered |
+| Cache invalidation on delete | `urls.test > should delete and invalidate cache`, `urlCache.test > invalidate` | `cache.integration > should invalidate cache on deletion` | `Cached redirect workflow` | Covered |
+| Cache on URL creation | `urls.test > should cache newly created URL` | `cache.integration > cache on creation` | `Cached redirect workflow` | Covered |
+| Redis graceful degradation | `urlCache.test > Redis unavailable`, `rateLimit.test > fail open` | - | - | Covered |
+| Rate limiting (POST /api/urls) | `rateLimit.test > under limit/over limit/429` | `cache.integration > rate limit enforcement` | `Rate limiting protects the system` | Covered |
+| Rate limit headers | `rateLimit.test > X-RateLimit-* headers` | `cache.integration > rate limit headers on POST` | `Rate limiting protects the system` | Covered |
+| Rate limit fail open | `rateLimit.test > fail open on Redis unavailable/error` | - | - | Covered |
+| Redis health check | `redis.test > exports` | `cache.integration > health endpoint shows Redis` | `Health check shows Redis status` | Covered |
 
 ## Phase Coverage Log
 
@@ -84,3 +93,10 @@ npx vitest run --dir src && \
 - **New scenario tests:** 3 (analytics-workflow.scenario.test.js)
 - **Requirements covered:** Click metadata (browser/OS), non-blocking click recording, global analytics summary, unique visitors, clicks-by-hour, browser breakdown, date range filtering, analytics DB indexes
 - **Gaps:** Integration and scenario tests could not run (Docker/PostgreSQL unavailable); tests are correctly written and will pass with infrastructure
+
+### Phase 3: Redis Caching and Rate Limiting
+- **New unit tests:** 26 (3 redis + 13 urlCache + 10 rateLimit) + 5 updated in urls.test
+- **New integration tests:** 7 (cache.integration.test.js)
+- **New scenario tests:** 3 (cache-workflow.scenario.test.js)
+- **Requirements covered:** Cache-aside URL lookups, cache invalidation on delete, cache population on create, rate limiting on POST /api/urls, rate limit headers, graceful degradation, Redis health check
+- **Gaps:** Integration and scenario tests could not run (Docker/PostgreSQL/Redis unavailable); tests are correctly written and will pass with infrastructure

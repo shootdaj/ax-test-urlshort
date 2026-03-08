@@ -8,6 +8,8 @@ const { pool } = require('./db/pool');
 const urlRoutes = require('./routes/urls');
 const analyticsRoutes = require('./routes/analytics');
 const { errorHandler } = require('./middleware/errors');
+const { rateLimit } = require('./middleware/rateLimit');
+const { healthCheck: redisHealthCheck } = require('./cache/redis');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,8 +19,25 @@ app.use(cors());
 app.use(morgan('combined'));
 app.use(express.json());
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Basic health check
+app.get('/health', async (req, res) => {
+  const redis = await redisHealthCheck();
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    redis: {
+      connected: redis.connected,
+      latencyMs: redis.latencyMs || null,
+    },
+  });
+});
+
+// Apply rate limiter to URL creation endpoint
+app.use('/api/urls', (req, res, next) => {
+  if (req.method === 'POST') {
+    return rateLimit({ windowSeconds: 60, maxRequests: 10 })(req, res, next);
+  }
+  next();
 });
 
 app.use('/api/urls', urlRoutes);
