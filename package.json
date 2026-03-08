@@ -1,0 +1,29 @@
+{
+  "name": "urlshort",
+  "version": "0.1.0",
+  "description": "URL shortener API with analytics",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "vitest run --dir src",
+    "test:integration": "vitest run --dir test/integration",
+    "test:scenario": "vitest run --dir test/scenarios",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "nanoid": "^5.0.8",
+    "redis": "^4.7.0",
+    "helmet": "^8.0.0",
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "eslint": "^9.12.0",
+    "supertest": "^7.0.0"
+  }
+}

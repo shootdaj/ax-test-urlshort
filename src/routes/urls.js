@@ -1,0 +1,70 @@
+const express = require('express');
+const { nanoid } = require('nanoid');
+const { query } = require('../db/pool');
+
+const router = express.Router();
+
+// Create short URL
+router.post('/', async (req, res, next) => {
+  try {
+    const { url, customSlug } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    const slug = customSlug || nanoid(8);
+    const result = await query(
+      'INSERT INTO urls (slug, original_url) VALUES ($1, $2) RETURNING *',
+      [slug, url]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Redirect
+router.get('/:slug', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const result = await query('SELECT * FROM urls WHERE slug = $1', [slug]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'URL not found' });
+    }
+
+    // Record click
+    await query(
+      'INSERT INTO clicks (url_id, referrer, user_agent, ip_address) VALUES ($1, $2, $3, $4)',
+      [result.rows[0].id, req.get('referer'), req.get('user-agent'), req.ip]
+    );
+
+    res.redirect(301, result.rows[0].original_url);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// List user's URLs
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await query(
+      'SELECT u.*, COUNT(c.id) as click_count FROM urls u LEFT JOIN clicks c ON u.id = c.url_id GROUP BY u.id ORDER BY u.created_at DESC LIMIT 50'
+    );
+    res.json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Delete URL
+router.delete('/:slug', async (req, res, next) => {
+  try {
+    const result = await query('DELETE FROM urls WHERE slug = $1 RETURNING *', [req.params.slug]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'URL not found' });
+    }
+    res.json({ deleted: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
