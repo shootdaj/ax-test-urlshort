@@ -1,6 +1,7 @@
 const express = require('express');
 const { nanoid } = require('nanoid');
 const { query } = require('../db/pool');
+const { validateUrl, validateSlug } = require('../utils/validation');
 
 const router = express.Router();
 
@@ -8,7 +9,18 @@ const router = express.Router();
 router.post('/', async (req, res, next) => {
   try {
     const { url, customSlug } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    // Validate URL
+    const urlCheck = validateUrl(url);
+    if (!urlCheck.valid) {
+      return res.status(400).json({ error: urlCheck.error });
+    }
+
+    // Validate custom slug if provided
+    const slugCheck = validateSlug(customSlug);
+    if (!slugCheck.valid) {
+      return res.status(400).json({ error: slugCheck.error });
+    }
 
     const slug = customSlug || nanoid(8);
     const result = await query(
@@ -16,6 +28,20 @@ router.post('/', async (req, res, next) => {
       [slug, url]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get URL info (without redirect)
+router.get('/:slug/info', async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const result = await query('SELECT * FROM urls WHERE slug = $1', [slug]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'URL not found' });
+    }
+    res.json(result.rows[0]);
   } catch (err) {
     next(err);
   }
@@ -42,7 +68,7 @@ router.get('/:slug', async (req, res, next) => {
   }
 });
 
-// List user's URLs
+// List URLs
 router.get('/', async (req, res, next) => {
   try {
     const result = await query(
