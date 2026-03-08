@@ -1,4 +1,3 @@
-const { describe, it, expect, beforeAll, afterAll, beforeEach } = require('vitest');
 const request = require('supertest');
 const { Pool } = require('pg');
 const fs = require('fs');
@@ -6,40 +5,37 @@ const path = require('path');
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/test';
 
-let pool;
+let testPool;
 let app;
 
 beforeAll(async () => {
-  pool = new Pool({ connectionString: DATABASE_URL });
+  testPool = new Pool({ connectionString: DATABASE_URL });
 
   // Run migrations
   const schemaPath = path.join(__dirname, '../../src/db/schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf-8');
-  await pool.query(sql);
+  await testPool.query(sql);
 
-  // Override the db/pool module to use test pool
-  const dbPool = require('../../src/db/pool');
-  // Only close and reassign if not already done by integration tests
-  if (dbPool.pool !== pool) {
-    try { dbPool.pool.end(); } catch (e) { /* already closed */ }
-    Object.assign(dbPool, { pool, query: (text, params) => pool.query(text, params) });
-  }
+  // Override the db module's query and pool to use test pool
+  const db = require('../../src/db/pool');
+  db.query = (text, params) => testPool.query(text, params);
+  db.pool = testPool;
 
   const appModule = require('../../src/index');
   app = appModule.app;
 });
 
 afterAll(async () => {
-  if (pool) {
-    await pool.query('DROP TABLE IF EXISTS clicks CASCADE');
-    await pool.query('DROP TABLE IF EXISTS urls CASCADE');
-    await pool.end();
+  if (testPool) {
+    await testPool.query('DROP TABLE IF EXISTS clicks CASCADE');
+    await testPool.query('DROP TABLE IF EXISTS urls CASCADE');
+    await testPool.end();
   }
 });
 
 beforeEach(async () => {
-  await pool.query('DELETE FROM clicks');
-  await pool.query('DELETE FROM urls');
+  await testPool.query('DELETE FROM clicks');
+  await testPool.query('DELETE FROM urls');
 });
 
 describe('Scenario: Full URL shortening workflow', () => {
@@ -64,8 +60,8 @@ describe('Scenario: Full URL shortening workflow', () => {
     expect(infoRes.body.slug).toBe('gh-example');
 
     // Verify click in DB directly
-    const urlRow = await pool.query('SELECT id FROM urls WHERE slug = $1', ['gh-example']);
-    const clicks = await pool.query('SELECT * FROM clicks WHERE url_id = $1', [urlRow.rows[0].id]);
+    const urlRow = await testPool.query('SELECT id FROM urls WHERE slug = $1', ['gh-example']);
+    const clicks = await testPool.query('SELECT * FROM clicks WHERE url_id = $1', [urlRow.rows[0].id]);
     expect(clicks.rows.length).toBeGreaterThanOrEqual(1);
 
     // Step 4: Delete the URL

@@ -1,4 +1,3 @@
-const { describe, it, expect } = require('vitest');
 const { validateUrl, validateSlug } = require('./validation');
 
 describe('validateUrl', () => {

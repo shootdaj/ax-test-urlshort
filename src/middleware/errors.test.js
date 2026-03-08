@@ -1,4 +1,3 @@
-const { describe, it, expect, vi } = require('vitest');
 const { errorHandler } = require('./errors');
 
 describe('errorHandler', () => {

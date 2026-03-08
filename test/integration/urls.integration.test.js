@@ -1,4 +1,3 @@
-const { describe, it, expect, beforeAll, afterAll, beforeEach } = require('vitest');
 const request = require('supertest');
 const { Pool } = require('pg');
 const fs = require('fs');
@@ -7,21 +6,21 @@ const path = require('path');
 // Use test database URL
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/test';
 
-let pool;
+let testPool;
 let app;
 
 beforeAll(async () => {
-  pool = new Pool({ connectionString: DATABASE_URL });
+  testPool = new Pool({ connectionString: DATABASE_URL });
 
   // Run migrations
   const schemaPath = path.join(__dirname, '../../src/db/schema.sql');
   const sql = fs.readFileSync(schemaPath, 'utf-8');
-  await pool.query(sql);
+  await testPool.query(sql);
 
-  // Override the db/pool module to use test pool
-  const dbPool = require('../../src/db/pool');
-  dbPool.pool.end(); // close default pool
-  Object.assign(dbPool, { pool, query: (text, params) => pool.query(text, params) });
+  // Override the db module's query and pool to use test pool
+  const db = require('../../src/db/pool');
+  db.query = (text, params) => testPool.query(text, params);
+  db.pool = testPool;
 
   // Import app after pool override
   const appModule = require('../../src/index');
@@ -29,17 +28,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (pool) {
-    await pool.query('DROP TABLE IF EXISTS clicks CASCADE');
-    await pool.query('DROP TABLE IF EXISTS urls CASCADE');
-    await pool.end();
+  if (testPool) {
+    await testPool.query('DROP TABLE IF EXISTS clicks CASCADE');
+    await testPool.query('DROP TABLE IF EXISTS urls CASCADE');
+    await testPool.end();
   }
 });
 
 beforeEach(async () => {
   // Clean tables between tests
-  await pool.query('DELETE FROM clicks');
-  await pool.query('DELETE FROM urls');
+  await testPool.query('DELETE FROM clicks');
+  await testPool.query('DELETE FROM urls');
 });
 
 describe('URL Creation (Integration)', () => {
@@ -53,7 +52,7 @@ describe('URL Creation (Integration)', () => {
     expect(res.body.original_url).toBe('https://example.com');
 
     // Verify it's in the database
-    const dbResult = await pool.query('SELECT * FROM urls WHERE slug = $1', [res.body.slug]);
+    const dbResult = await testPool.query('SELECT * FROM urls WHERE slug = $1', [res.body.slug]);
     expect(dbResult.rows).toHaveLength(1);
   });
 
@@ -98,8 +97,8 @@ describe('URL Redirect (Integration)', () => {
     expect(res.headers.location).toBe('https://example.com');
 
     // Verify click was recorded
-    const urlRow = await pool.query('SELECT id FROM urls WHERE slug = $1', ['redir-test']);
-    const clicks = await pool.query('SELECT * FROM clicks WHERE url_id = $1', [urlRow.rows[0].id]);
+    const urlRow = await testPool.query('SELECT id FROM urls WHERE slug = $1', ['redir-test']);
+    const clicks = await testPool.query('SELECT * FROM clicks WHERE url_id = $1', [urlRow.rows[0].id]);
     expect(clicks.rows).toHaveLength(1);
   });
 
@@ -138,11 +137,11 @@ describe('URL Deletion (Integration)', () => {
     expect(res.body.deleted).toBe(true);
 
     // Verify gone
-    const dbResult = await pool.query('SELECT * FROM urls WHERE slug = $1', ['del-test']);
+    const dbResult = await testPool.query('SELECT * FROM urls WHERE slug = $1', ['del-test']);
     expect(dbResult.rows).toHaveLength(0);
 
     // Verify clicks also gone (cascade)
-    const clicks = await pool.query('SELECT * FROM clicks');
+    const clicks = await testPool.query('SELECT * FROM clicks');
     expect(clicks.rows).toHaveLength(0);
   });
 
