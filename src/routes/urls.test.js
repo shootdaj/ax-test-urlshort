@@ -128,7 +128,7 @@ describe('GET /api/urls/:slug', () => {
   it('should redirect to original URL', async () => {
     const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
     mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
-    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click (non-blocking)
 
     const app = createApp();
     const res = await request(app)
@@ -137,6 +137,49 @@ describe('GET /api/urls/:slug', () => {
 
     expect(res.status).toBe(301);
     expect(res.headers.location).toBe('https://example.com');
+  });
+
+  it('should record click with parsed user-agent metadata', async () => {
+    const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // INSERT click
+
+    const app = createApp();
+    await request(app)
+      .get('/api/urls/abc123')
+      .set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+      .redirects(0);
+
+    // Wait for non-blocking click recording to complete
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify the click INSERT was called with browser/os params
+    const clickInsertCall = mockQuery.mock.calls.find(
+      (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO clicks')
+    );
+    expect(clickInsertCall).toBeTruthy();
+    // Params: [url_id, referrer, user_agent, ip, browser, os]
+    expect(clickInsertCall[1][4]).toBe('Chrome'); // browser
+    expect(clickInsertCall[1][5]).toBe('Windows'); // os
+  });
+
+  it('should still redirect even if click recording fails', async () => {
+    const mockRow = { id: 1, slug: 'abc123', original_url: 'https://example.com', created_at: new Date().toISOString() };
+    mockQuery.mockResolvedValueOnce({ rows: [mockRow] }); // SELECT
+    mockQuery.mockRejectedValueOnce(new Error('DB write failed')); // INSERT click fails
+
+    // Suppress the console.error from the catch handler
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const app = createApp();
+    const res = await request(app)
+      .get('/api/urls/abc123')
+      .redirects(0);
+
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe('https://example.com');
+
+    console.error.mockRestore();
   });
 
   it('should return 404 for unknown slug', async () => {

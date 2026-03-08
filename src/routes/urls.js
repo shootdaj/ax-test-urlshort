@@ -2,6 +2,7 @@ const express = require('express');
 const { nanoid } = require('nanoid');
 const db = require('../db/pool');
 const { validateUrl, validateSlug } = require('../utils/validation');
+const { parseUserAgent } = require('../utils/useragent');
 
 const router = express.Router();
 
@@ -56,11 +57,15 @@ router.get('/:slug', async (req, res, next) => {
       return res.status(404).json({ error: 'URL not found' });
     }
 
-    // Record click
-    await db.query(
-      'INSERT INTO clicks (url_id, referrer, user_agent, ip_address) VALUES ($1, $2, $3, $4)',
-      [result.rows[0].id, req.get('referer'), req.get('user-agent'), req.ip]
-    );
+    // Record click (non-blocking — don't delay the redirect)
+    const userAgent = req.get('user-agent') || '';
+    const { browser, os } = parseUserAgent(userAgent);
+    db.query(
+      'INSERT INTO clicks (url_id, referrer, user_agent, ip_address, browser, os) VALUES ($1, $2, $3, $4, $5, $6)',
+      [result.rows[0].id, req.get('referer'), userAgent, req.ip, browser, os]
+    ).catch((err) => {
+      console.error('Failed to record click:', err.message);
+    });
 
     res.redirect(301, result.rows[0].original_url);
   } catch (err) {
