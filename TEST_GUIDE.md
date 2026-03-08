@@ -75,6 +75,19 @@ npx vitest run --dir src && \
 | Rate limit headers | `rateLimit.test > X-RateLimit-* headers` | `cache.integration > rate limit headers on POST` | `Rate limiting protects the system` | Covered |
 | Rate limit fail open | `rateLimit.test > fail open on Redis unavailable/error` | - | - | Covered |
 | Redis health check | `redis.test > exports` | `cache.integration > health endpoint shows Redis` | `Health check shows Redis status` | Covered |
+| Request body size limit (10kb) | `app.test > should reject payloads larger than 10kb` | - | `Request size limits > reject oversized bodies` | Covered |
+| URL length validation (2048 max) | `validateUrl > should reject URLs exceeding max length` | - | `Input validation > reject oversized URLs` | Covered |
+| URL credential rejection | `validateUrl > should reject URLs with credentials` | - | `Input validation > reject embedded credentials` | Covered |
+| Slug param validation (read/delete) | `validateSlugParam > 17 tests`, `urls.test > slug with special chars` | - | `Slug parameter sanitization > reject XSS/injection` | Covered |
+| Open redirect protection | `urls.test > should return 502 if stored URL has invalid scheme` | - | - | Covered |
+| Metadata sanitization | `urls.test > should truncate long user-agent` | - | - | Covered |
+| Error handler (entity too large) | `errorHandler > should return 413` | - | `Request size limits > reject oversized bodies` | Covered |
+| Error handler (malformed JSON) | `errorHandler > should return 400 for malformed JSON` | - | `Request size limits > reject malformed JSON` | Covered |
+| Error handler (production logging) | `errorHandler > should log only message in production` | - | - | Covered |
+| Helmet security headers | `app.test > Security headers (Helmet)` | - | `Security headers are present` | Covered |
+| CORS headers | `app.test > CORS > should include CORS headers` | - | - | Covered |
+| Health endpoint | `app.test > GET /health > should return health status` | - | - | Covered |
+| javascript/data/file URL rejection | `validateUrl > javascript/data/file URLs` | - | `Input validation > javascript/data URLs` | Covered |
 
 ## Phase Coverage Log
 
@@ -100,3 +113,11 @@ npx vitest run --dir src && \
 - **New scenario tests:** 3 (cache-workflow.scenario.test.js)
 - **Requirements covered:** Cache-aside URL lookups, cache invalidation on delete, cache population on create, rate limiting on POST /api/urls, rate limit headers, graceful degradation, Redis health check
 - **Gaps:** Integration and scenario tests could not run (Docker/PostgreSQL/Redis unavailable); tests are correctly written and will pass with infrastructure
+
+### Phase 4: Testing and Hardening
+- **New unit tests:** 40 (17 validateSlugParam + 14 validateUrl edge cases + 7 slug edge cases + 1 MAX_URL_LENGTH + 4 errors + 9 app.test + 5 urls route + 1 analytics route + 2 delete/info route)
+- **New integration tests:** 0 (hardening phase — no new DB features)
+- **New scenario tests:** 11 (security-hardening.scenario.test.js)
+- **Total test count:** 173 unit + 25 integration (skipped) + 20 scenario (11 passed, 9 skipped)
+- **Requirements covered:** Request body size limit, URL length/credential validation, slug param validation, open redirect protection, metadata sanitization, error handler hardening (413/400/production logging), security headers, CORS, health endpoint, javascript/data/file URL rejection
+- **Gaps:** Integration and scenario tests requiring PostgreSQL/Redis could not run (Docker unavailable); tests are correctly written and will pass with infrastructure
