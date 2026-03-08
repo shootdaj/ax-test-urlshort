@@ -1,4 +1,4 @@
-const { validateUrl, validateSlug } = require('./validation');
+const { validateUrl, validateSlug, validateDateParam } = require('./validation');
 
 describe('validateUrl', () => {
   it('should accept valid https URL', () => {
@@ -84,5 +84,53 @@ describe('validateSlug', () => {
 
   it('should accept slug at max length (32)', () => {
     expect(validateSlug('a'.repeat(32))).toEqual({ valid: true });
+  });
+});
+
+describe('validateDateParam', () => {
+  it('should accept undefined (optional)', () => {
+    expect(validateDateParam(undefined)).toEqual({ valid: true });
+  });
+
+  it('should accept null (optional)', () => {
+    expect(validateDateParam(null)).toEqual({ valid: true });
+  });
+
+  it('should accept empty string (optional)', () => {
+    expect(validateDateParam('')).toEqual({ valid: true });
+  });
+
+  it('should accept valid YYYY-MM-DD date', () => {
+    const result = validateDateParam('2026-03-01');
+    expect(result.valid).toBe(true);
+    expect(result.date).toBeInstanceOf(Date);
+  });
+
+  it('should reject non-string input', () => {
+    const result = validateDateParam(123);
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('Date must be a string');
+  });
+
+  it('should reject wrong format (slash-separated)', () => {
+    const result = validateDateParam('2026/03/01');
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('Date must be in YYYY-MM-DD format');
+  });
+
+  it('should reject wrong format (DD-MM-YYYY)', () => {
+    const result = validateDateParam('01-03-2026');
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('Date must be in YYYY-MM-DD format');
+  });
+
+  it('should reject text that is not a date', () => {
+    const result = validateDateParam('not-a-date');
+    expect(result.valid).toBe(false);
+  });
+
+  it('should accept leap year date', () => {
+    const result = validateDateParam('2024-02-29');
+    expect(result.valid).toBe(true);
   });
 });

@@ -43,4 +43,26 @@ function validateSlug(slug) {
   return { valid: true };
 }
 
-module.exports = { validateUrl, validateSlug };
+/**
+ * Validate a date string in YYYY-MM-DD format.
+ * @param {string} dateStr
+ * @returns {{ valid: boolean, error?: string, date?: Date }}
+ */
+function validateDateParam(dateStr) {
+  if (!dateStr) {
+    return { valid: true }; // date params are optional
+  }
+  if (typeof dateStr !== 'string') {
+    return { valid: false, error: 'Date must be a string' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return { valid: false, error: 'Date must be in YYYY-MM-DD format' };
+  }
+  const date = new Date(dateStr + 'T00:00:00Z');
+  if (isNaN(date.getTime())) {
+    return { valid: false, error: 'Invalid date' };
+  }
+  return { valid: true, date };
+}
+
+module.exports = { validateUrl, validateSlug, validateDateParam };
