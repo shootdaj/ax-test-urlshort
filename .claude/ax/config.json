@@ -1,0 +1,38 @@
+{
+  "initialized_at": "2026-03-08T20:15:30Z",
+  "project_name": "urlshort",
+  "mode": "brownfield",
+  "profile": "quality",
+  "notion": {
+    "parent_page_id": null,
+    "doc_pages": {
+      "prd": null,
+      "architecture": null,
+      "api": null,
+      "testing": null
+    },
+    "last_updated": null
+  },
+  "testing": {
+    "stack": "node",
+    "language_version": "20",
+    "test_framework": "vitest",
+    "unit_command": "npx vitest run --dir src",
+    "integration_command": "npx vitest run --dir test/integration",
+    "scenario_command": "npx vitest run --dir test/scenarios",
+    "docker_compose_file": "docker-compose.test.yml"
+  },
+  "ci": {
+    "provider": "github-actions",
+    "workflow_file": ".github/workflows/ci.yml"
+  },
+  "phases_completed": [],
+  "milestone_history": [],
+  "last_commands": {
+    "init": "2026-03-08T20:15:30Z",
+    "phase": null,
+    "run": null,
+    "finish": null,
+    "status": null
+  }
+}
